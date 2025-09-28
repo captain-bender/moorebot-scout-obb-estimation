@@ -113,7 +113,7 @@ Examples:
   python training.py --batch-size 32 --epochs 150      # Larger batch, more epochs
         """
     )
-    parser.add_argument('--data', type=str, default='./datasets/moorebot_v2/data.yaml', help='Path to dataset YAML file')
+    parser.add_argument('--data', type=str, default='./datasets/moorebot_v1/data.yaml', help='Path to dataset YAML file')
     parser.add_argument('--model', type=str, default='yolo11n-obb.pt', help='Model to use (yolo11n-obb.pt, yolo11s-obb.pt, etc.)')
     parser.add_argument('--epochs', type=int, default=100,help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=4, help='Batch size for training')
@@ -133,7 +133,7 @@ Examples:
     parser.add_argument('--fliplr', type=float, default=0.5, help='Horizontal flip probability')
     
     parser.add_argument('--project', type=str, default='runs/train', help='Project directory for saving results')
-    parser.add_argument('--name', type=str, default='yolo11n-moorebot_v2-obb-v2', help='Experiment name')
+    parser.add_argument('--name', type=str, default='yolo11n-moorebot_v1-obb-v2', help='Experiment name')
     
     args = parser.parse_args()
     
