@@ -73,14 +73,22 @@ def check_dataset_config(data_path):
     print(f"  Classes: {config.get('nc', 'Unknown')}")
     print(f"  Names: {config.get('names', 'Unknown')}")
     
-    # Verify dataset paths exist
+    # Verify dataset paths exist - handle relative paths correctly
     dataset_dir = os.path.dirname(data_path)
     for split in ['train', 'val', 'test']:
         if split in config:
-            split_path = os.path.join(dataset_dir, config[split])
+            # Handle relative paths that might start with ../
+            raw_path = config[split]
+            if raw_path.startswith('../'):
+                split_path = os.path.join(dataset_dir, raw_path)
+            else:
+                split_path = os.path.join(dataset_dir, raw_path)
+            
+            split_path = os.path.normpath(split_path)  # Clean up path
+            
             if os.path.exists(split_path):
                 image_count = len([f for f in os.listdir(split_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                print(f"  {split.capitalize()}: {image_count} images found")
+                print(f"  {split.capitalize()}: {image_count} images found at {split_path}")
             else:
                 print(f"  Warning: {split} path not found: {split_path}")
     
@@ -115,7 +123,7 @@ Examples:
                        help='Batch size for training')
     parser.add_argument('--img-size', type=int, default=1280,
                        help='Image size for training')
-    parser.add_argument('--device', type=str, default='0',
+    parser.add_argument('--device', type=str, default='',
                        help='Device to use (cpu, 0, 1, etc.). Empty for auto-detect')
     parser.add_argument('--workers', type=int, default=8,
                        help='Number of workers')
@@ -128,9 +136,6 @@ Examples:
     
     # Setup
     setup_directories()
-    print("=" * 60)
-    print("YOLO11 OBB Custom Training")
-    print("=" * 60)
     
     # Check CUDA availability
     device = args.device if args.device else ('0' if torch.cuda.is_available() else 'cpu')
