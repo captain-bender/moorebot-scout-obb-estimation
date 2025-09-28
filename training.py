@@ -113,24 +113,27 @@ Examples:
   python training.py --batch-size 32 --epochs 150      # Larger batch, more epochs
         """
     )
-    parser.add_argument('--data', type=str, default='./datasets/moorebot_v1/data.yaml',
-                       help='Path to dataset YAML file')
-    parser.add_argument('--model', type=str, default='yolo11n-obb.pt',
-                       help='Model to use (yolo11n-obb.pt, yolo11s-obb.pt, etc.)')
-    parser.add_argument('--epochs', type=int, default=100,
-                       help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=4,
-                       help='Batch size for training')
-    parser.add_argument('--img-size', type=int, default=1280,
-                       help='Image size for training')
-    parser.add_argument('--device', type=str, default='',
-                       help='Device to use (cpu, 0, 1, etc.). Empty for auto-detect')
-    parser.add_argument('--workers', type=int, default=8,
-                       help='Number of workers')
-    parser.add_argument('--project', type=str, default='runs/train',
-                       help='Project directory for saving results')
-    parser.add_argument('--name', type=str, default='yolo11n-moorebot_v1-obb-v1',
-                       help='Experiment name')
+    parser.add_argument('--data', type=str, default='./datasets/moorebot_v1/data.yaml', help='Path to dataset YAML file')
+    parser.add_argument('--model', type=str, default='yolo11n-obb.pt', help='Model to use (yolo11n-obb.pt, yolo11s-obb.pt, etc.)')
+    parser.add_argument('--epochs', type=int, default=100,help='Number of training epochs')
+    parser.add_argument('--batch-size', type=int, default=4, help='Batch size for training')
+    parser.add_argument('--img-size', type=int, default=1980,help='Image size for training')
+    parser.add_argument('--device', type=str, default='', help='Device to use (cpu, 0, 1, etc.). Empty for auto-detect')
+    parser.add_argument('--workers', type=int, default=16, help='Number of workers')
+
+    parser.add_argument('--lr0', type=float, default=0.001, help='Initial learning rate')
+    parser.add_argument('--patience', type=int, default=50, help='Early stopping patience')
+    parser.add_argument('--save-period', type=int, default=25, help='Save checkpoint every N epochs')
+    parser.add_argument('--cache', type=str, default='ram', help='Cache images in ram/disk/False')
+    parser.add_argument('--mixup', type=float, default=0.0, help='Mixup augmentation probability (disabled for OBB)')
+    parser.add_argument('--mosaic', type=float, default=1.0, help='Mosaic augmentation probability')
+    parser.add_argument('--degrees', type=float, default=10.0, help='Image rotation degrees')
+    parser.add_argument('--translate', type=float, default=0.2, help='Image translation fraction')
+    parser.add_argument('--scale', type=float, default=0.9, help='Image scale gain')
+    parser.add_argument('--fliplr', type=float, default=0.5, help='Horizontal flip probability')
+    
+    parser.add_argument('--project', type=str, default='runs/train', help='Project directory for saving results')
+    parser.add_argument('--name', type=str, default='yolo11n-moorebot_v1-obb-v1', help='Experiment name')
     
     args = parser.parse_args()
     
@@ -165,6 +168,23 @@ Examples:
         'workers': args.workers,
         'project': args.project,
         'name': args.name,
+        'exist_ok': True,
+        'pretrained': True,
+        'optimizer': 'AdamW',  # Better for high-res training
+        'lr0': args.lr0,
+        'patience': args.patience,
+        'save_period': args.save_period,
+        'cache': args.cache,
+        'mixup': args.mixup,
+        'mosaic': args.mosaic,
+        'degrees': args.degrees,
+        'translate': args.translate,
+        'scale': args.scale,
+        'fliplr': args.fliplr,
+        'close_mosaic': 15,  # Stop mosaic in last 15 epochs
+        'amp': True,  # Automatic Mixed Precision for memory efficiency
+        'fraction': 1.0,  # Use full dataset
+        'seed': 42,  # Reproducible results
     }
     
     print("\nTraining configuration:")
