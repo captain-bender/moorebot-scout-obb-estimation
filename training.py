@@ -103,20 +103,13 @@ Examples:
   python training.py                                    # Default settings
   python training.py --epochs 200                      # Train for 200 epochs  
   python training.py --batch-size 32 --epochs 150      # Larger batch, more epochs
-  python training.py --name my_experiment --lr0 0.001  # Custom name and learning rate
-  python training.py --resume runs/train/exp/weights/last.pt  # Resume training
-
-Common configurations:
-  Fast training:    --epochs 50 --batch-size 8
-  Balanced:         --epochs 100 --batch-size 16 (default)
-  High quality:     --epochs 200 --batch-size 32
         """
     )
-    parser.add_argument('--data', type=str, default='datasets/moorebot_v1/data.yaml',
+    parser.add_argument('--data', type=str, default='./datasets/moorebot_v1/data.yaml',
                        help='Path to dataset YAML file')
     parser.add_argument('--model', type=str, default='yolo11n-obb.pt',
                        help='Model to use (yolo11n-obb.pt, yolo11s-obb.pt, etc.)')
-    parser.add_argument('--epochs', type=int, default=10,
+    parser.add_argument('--epochs', type=int, default=100,
                        help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=4,
                        help='Batch size for training')
@@ -124,18 +117,12 @@ Common configurations:
                        help='Image size for training')
     parser.add_argument('--device', type=str, default='0',
                        help='Device to use (cpu, 0, 1, etc.). Empty for auto-detect')
-    parser.add_argument('--lr0', type=float, default=0.01,
-                       help='Initial learning rate')
-    parser.add_argument('--patience', type=int, default=50,
-                       help='Early stopping patience')
-    parser.add_argument('--save-period', type=int, default=10,
-                       help='Save model every N epochs')
+    parser.add_argument('--workers', type=int, default=8,
+                       help='Number of workers')
     parser.add_argument('--project', type=str, default='runs/train',
                        help='Project directory for saving results')
-    parser.add_argument('--name', type=str, default='yolo11n_obb_custom',
+    parser.add_argument('--name', type=str, default='yolo11n-moorebot_v1-obb-v1',
                        help='Experiment name')
-    parser.add_argument('--resume', type=str, default='',
-                       help='Resume training from checkpoint')
     
     args = parser.parse_args()
     
@@ -158,11 +145,7 @@ Common configurations:
     
     # Initialize model
     print(f"\nInitializing model: {args.model}")
-    if args.resume:
-        print(f"Resuming from: {args.resume}")
-        model = YOLO(args.resume)
-    else:
-        model = YOLO(args.model)  # Load pretrained model
+    model = YOLO(args.model)  # Load pretrained model
     
     # Print model info
     # print(f"Model architecture: {model.model}")
@@ -174,40 +157,9 @@ Common configurations:
         'batch': args.batch_size,
         'imgsz': args.img_size,
         'device': device,
-        'lr0': args.lr0,
-        'patience': args.patience,
-        'save_period': args.save_period,
+        'workers': args.workers,
         'project': args.project,
         'name': args.name,
-        'exist_ok': True,
-        'pretrained': True,
-        'optimizer': 'AdamW',
-        'verbose': True,
-        'seed': 42,
-        'deterministic': True,
-        'single_cls': False,
-        'rect': False,
-        'cos_lr': True,
-        'close_mosaic': 10,  # Disable mosaic augmentation for final epochs
-        'resume': bool(args.resume),
-        'amp': True,  # Automatic Mixed Precision
-        'fraction': 1.0,
-        'profile': False,
-        'freeze': None,
-        'multi_scale': False,
-        'overlap_mask': True,
-        'mask_ratio': 4,
-        'dropout': 0.0,
-        'val': True,
-        'split': 'val',
-        'save_json': True,
-        'save_hybrid': False,
-        'conf': None,
-        'iou': 0.7,
-        'max_det': 300,
-        'half': False,
-        'dnn': False,
-        'plots': True,
     }
     
     print("\nTraining configuration:")
