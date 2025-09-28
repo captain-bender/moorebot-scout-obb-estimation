@@ -1,8 +1,9 @@
 # moorebotOBB - Moorebot Robot Pose usine YOLO11 Oriented Bounding Boxes
 
-Train a YOLO11 OBB (Oriented Bounding Box) model on your custom moorebot dataset with 2 classes: `box` and `robot`.
+A custom oriented bounding box project using YOLO11 for detecting and tracking Moorebot scout robot for robotic applications and automation.
+The custom moorebot dataset contains 2 classes: `box` and `robot`.
 
-### 2. Start Training
+### Training
 ```bash
 # Basic training (recommended for first run)
 python training.py
@@ -10,11 +11,6 @@ python training.py
 # With custom parameters
 python training.py --epochs 200 --batch-size 32 --name my_experiment
 ```
-
-### 3. View Results
-Training results are saved in `runs/train/[experiment_name]/`
-
-## Key Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -25,3 +21,9 @@ Training results are saved in `runs/train/[experiment_name]/`
 | `--name` | `yolo11n_obb_custom` | Experiment name |
 | `--patience` | 50 | Early stopping patience |
 | `--device` | auto | Device (cpu, 0, 1, etc.) |
+
+### Datasets
+
+The datasets can be found in Roboflow Universe:
+
+- [Version1](https://app.roboflow.com/moorebot-scout/moorebot-obb-ncoi8/2): Full training dataset applying the usual preprocessing and augmentation steps
