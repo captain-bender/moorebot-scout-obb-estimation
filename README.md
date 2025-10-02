@@ -72,4 +72,47 @@ Annotated images are saved to: `runs/test/test_<timestamp>/annotated_<original_n
 ### Classes & Colors (default)
 - box → green oriented box
 - robot → blue oriented box
+ 
+## Evaluate on Test Split (`evaluate_test.py`)
+
+Run quantitative metrics (Precision, Recall, mAP, F1, curves) on the dataset `test` split defined in your `data.yaml`.
+
+### Basic Usage
+```bash
+python evaluate_test.py
+```
+Automatically finds the most recent `runs/train/*/weights/best.pt` and uses `datasets/moorebot_v2/data.yaml`.
+
+### Specify Model & Dataset
+```bash
+python evaluate_test.py \
+	--model runs/train/yolo11n-moorebot_v2-obb-v1/weights/best.pt \
+	--data datasets/moorebot_v2/data.yaml
+```
+
+### Additional Options
+| Option | Description |
+|--------|-------------|
+| `--imgsz 1920` | Image size for evaluation |
+| `--batch 4` | Batch size |
+| `--conf 0.001` | Confidence threshold (keep low for metrics) |
+| `--iou 0.7` | IoU threshold for NMS |
+| `--save-json` | Export COCO-style JSON predictions |
+| `--save-txt` | Save per-image YOLO-format predictions |
+| `--project runs/obb` | Output base directory |
+| `--name test` | Base run name (timestamp appended) |
+
+### Outputs
+Metrics and artifacts saved to: `runs/obb/test_<timestamp>/`
+
+Includes (when generated):
+```
+confusion_matrix.png
+confusion_matrix_normalized.png
+BoxPR_curve.png / BoxP_curve.png / BoxR_curve.png / BoxF1_curve.png
+results.png / results.csv
+metrics_summary.csv (concise extracted metrics)
+```
+
+Use this after training to track performance progression across versions.
 ---
