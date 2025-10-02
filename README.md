@@ -101,6 +101,8 @@ python evaluate_test.py \
 | `--save-txt` | Save per-image YOLO-format predictions |
 | `--project runs/obb` | Output base directory |
 | `--name test` | Base run name (timestamp appended) |
+| `--angle-metric` | Compute oriented box angle error Δθ statistics |
+| `--angle-iou-thresh 0.1` | IoU threshold for matching boxes when computing Δθ |
 
 ### Outputs
 Metrics and artifacts saved to: `runs/obb/test_<timestamp>/`
@@ -112,7 +114,18 @@ confusion_matrix_normalized.png
 BoxPR_curve.png / BoxP_curve.png / BoxR_curve.png / BoxF1_curve.png
 results.png / results.csv
 metrics_summary.csv (concise extracted metrics)
+	+ angle metrics appended when using --angle-metric
 ```
+
+### Angle Error (Δθ)
+Enable with `--angle-metric` to compute orientation error between matched predicted and ground-truth oriented boxes:
+
+- Matching: Greedy per image & class by highest polygon IoU (threshold `--angle-iou-thresh`, default 0.1).
+- Angle definition: orientation of the longest edge, normalized to [0, 180). Final error uses symmetry: `min(|Δθ|, 180 - |Δθ|)` and further constrained to ≤90°.
+- Reported stats (degrees): count, mean, median, std, p90, p95, max.
+- Appended to `metrics_summary.csv` as rows prefixed with `angle/`.
+
+Use this to track rotational accuracy in addition to standard detection metrics.
 
 Use this after training to track performance progression across versions.
 ---

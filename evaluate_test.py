@@ -55,6 +55,146 @@ check_and_install_dependencies()
 from ultralytics import YOLO  # noqa: E402
 import torch  # noqa: E402
 import yaml  # noqa: E402
+import math
+import cv2
+import numpy as np
+
+# ---- Angle Error Utilities (defined early so main can call) -----------------
+
+def polygon_angle_deg(pts: np.ndarray) -> float:
+    """Compute rectangle orientation angle in degrees using longest edge."""
+    if pts.shape != (4, 2):
+        pts = pts.reshape(4, 2)
+    edges = []
+    for i in range(4):
+        p1 = pts[i]
+        p2 = pts[(i + 1) % 4]
+        v = p2 - p1
+        length = np.linalg.norm(v)
+        if length > 0:
+            edges.append((length, v))
+    if not edges:
+        return 0.0
+    v = max(edges, key=lambda x: x[0])[1]
+    angle = math.degrees(math.atan2(v[1], v[0]))
+    if angle < 0:
+        angle += 180
+    return angle
+
+
+def polygon_iou(pts_a: np.ndarray, pts_b: np.ndarray) -> float:
+    a = pts_a.astype(np.float32)
+    b = pts_b.astype(np.float32)
+    def order(pts):
+        c = pts.mean(axis=0)
+        angles = np.arctan2(pts[:,1]-c[1], pts[:,0]-c[0])
+        idx = np.argsort(angles)
+        return pts[idx]
+    a = order(a)
+    b = order(b)
+    area_a = cv2.contourArea(a)
+    area_b = cv2.contourArea(b)
+    if area_a <= 0 or area_b <= 0:
+        return 0.0
+    retval, inter = cv2.intersectConvexConvex(a, b)
+    if retval <= 0:
+        return 0.0
+    inter_area = cv2.contourArea(inter)
+    union = area_a + area_b - inter_area
+    if union <= 0:
+        return 0.0
+    return float(inter_area / union)
+
+
+def load_gt_labels(label_path: Path, img_path: Path):
+    img = cv2.imread(str(img_path))
+    if img is None:
+        return []
+    h, w = img.shape[:2]
+    objs = []
+    with open(label_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 9:
+                continue
+            cls = int(parts[0])
+            coords = list(map(float, parts[1:]))
+            pts = np.array(coords, dtype=float).reshape(4, 2)
+            pts[:, 0] *= w
+            pts[:, 1] *= h
+            ang = polygon_angle_deg(pts)
+            objs.append({'cls': cls, 'pts': pts, 'angle': ang})
+    return objs
+
+
+def compute_angle_error(model, images_dir: Path, iou_thresh: float, device):
+    image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+    images = sorted([p for p in Path(images_dir).iterdir() if p.suffix.lower() in image_exts])
+    if not images:
+        print(f"No images found for angle metric in {images_dir}")
+        return None
+    labels_dir = images_dir.parent / 'labels'
+    if not labels_dir.exists():
+        print(f"Labels directory not found for angle metric: {labels_dir}")
+        return None
+    all_errors = []
+    for img_path in images:
+        label_path = labels_dir / (img_path.stem + '.txt')
+        if not label_path.exists():
+            continue
+        gt_objs = load_gt_labels(label_path, img_path)
+        if not gt_objs:
+            continue
+        preds = model.predict(source=str(img_path), device=device, verbose=False)
+        if not preds or preds[0].obb is None:
+            continue
+        obb = preds[0].obb
+        if obb.xyxyxyxy is None:
+            continue
+        pred_polys = obb.xyxyxyxy.cpu().numpy()
+        pred_cls = obb.cls.cpu().numpy().astype(int)
+        pred_conf = obb.conf.cpu().numpy() if obb.conf is not None else np.ones(len(pred_cls))
+        pred_items = []
+        for poly, c, conf in zip(pred_polys, pred_cls, pred_conf):
+            pts = poly.reshape(4, 2)
+            ang = polygon_angle_deg(pts)
+            pred_items.append({'cls': c, 'pts': pts, 'angle': ang, 'conf': conf})
+        matched_gt = set()
+        for p in sorted(pred_items, key=lambda x: x['conf'], reverse=True):
+            best_iou = 0.0
+            best_gt_idx = -1
+            for idx, gt in enumerate(gt_objs):
+                if idx in matched_gt:
+                    continue
+                if gt['cls'] != p['cls']:
+                    continue
+                iou = polygon_iou(p['pts'], gt['pts'])
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = idx
+            if best_gt_idx >= 0 and best_iou >= iou_thresh:
+                matched_gt.add(best_gt_idx)
+                gt_angle = gt['angle']
+                pred_angle = p['angle']
+                diff = abs(pred_angle - gt_angle)
+                diff = min(diff, 180 - diff)
+                if diff > 90:
+                    diff = 180 - diff
+                all_errors.append(diff)
+    if not all_errors:
+        print("No matched predictions for angle metric (check IoU threshold or predictions).")
+        return None
+    arr = np.array(all_errors, dtype=float)
+    stats = {
+        'count': float(len(arr)),
+        'mean': float(arr.mean()),
+        'median': float(np.median(arr)),
+        'std': float(arr.std(ddof=0)),
+        'p90': float(np.percentile(arr, 90)),
+        'p95': float(np.percentile(arr, 95)),
+        'max': float(arr.max())
+    }
+    return stats
 
 
 def find_latest_best(weights_glob: str = 'runs/train/*/weights/best.pt') -> str | None:
@@ -155,6 +295,8 @@ Examples:
     parser.add_argument('--project', type=str, default='runs/obb', help='Base project directory for outputs')
     parser.add_argument('--name', type=str, default='test', help='Base run name (timestamp appended)')
     parser.add_argument('--verbose', action='store_true', help='Verbose Ultralytics logging')
+    parser.add_argument('--angle-metric', action='store_true', help='Compute oriented box angle error Δθ (additional pass)')
+    parser.add_argument('--angle-iou-thresh', type=float, default=0.1, help='IoU threshold to match prediction to GT for angle error')
 
     args = parser.parse_args()
 
@@ -268,6 +410,206 @@ Examples:
 
     print("\nEvaluation complete.")
 
+    # Optional angle error computation
+    if args.angle_metric:
+        try:
+            print("\nComputing angle error (Δθ) across test set ...")
+            angle_stats = compute_angle_error(
+                model=model,
+                images_dir=test_path,
+                iou_thresh=args.angle_iou_thresh,
+                device=device
+            )
+            if angle_stats:
+                print("\nAngle Error (Δθ) Statistics (degrees):")
+                for k, v in angle_stats.items():
+                    print(f"  {k:12s}: {v:.4f}")
+                # Append to metrics_summary.csv if it exists
+                csv_path = save_dir / 'metrics_summary.csv'
+                try:
+                    with open(csv_path, 'a', newline='') as f:
+                        f.write('\n')
+                        for k, v in angle_stats.items():
+                            f.write(f"angle/{k},{v:.6f}\n")
+                    print(f"Δθ stats appended to {csv_path}")
+                except Exception as e:
+                    print(f"Could not append angle metrics to CSV: {e}")
+        except Exception as e:
+            print(f"Angle metric computation failed: {e}")
+    else:
+        print("(Skip angle metric: enable with --angle-metric)")
+
 
 if __name__ == '__main__':
     main()
+
+# ---- Angle Error Utilities -------------------------------------------------
+
+def compute_angle_error(model, images_dir: Path, iou_thresh: float, device):
+    """Compute oriented box angle error Δθ.
+
+    Steps:
+      1. For each test image, load GT polygons from labels directory (YOLO OBB format: cls x1 y1 x2 y2 x3 y3 x4 y4 normalized).
+      2. Run inference to get predicted polygons (results[0].obb.xyxyxyxy).
+      3. Greedy match predictions to GT of same class by maximum polygon IoU (>= iou_thresh).
+      4. Angle = orientation of longest edge; Δθ normalized to [0, 90] by min(|Δθ|, 180-|Δθ|).
+      5. Aggregate statistics.
+    """
+    image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+    images = sorted([p for p in Path(images_dir).iterdir() if p.suffix.lower() in image_exts])
+    if not images:
+        print(f"No images found for angle metric in {images_dir}")
+        return None
+
+    # Infer labels directory relative to images directory
+    labels_dir = images_dir.parent / 'labels'
+    if not labels_dir.exists():
+        print(f"Labels directory not found for angle metric: {labels_dir}")
+        return None
+
+    all_errors = []
+
+    for img_path in images:
+        label_path = labels_dir / (img_path.stem + '.txt')
+        if not label_path.exists():
+            continue
+        gt_objs = load_gt_labels(label_path, img_path)
+        if not gt_objs:
+            continue
+
+        # Predict
+        preds = model.predict(source=str(img_path), device=device, verbose=False)
+        if not preds or preds[0].obb is None:
+            continue
+        obb = preds[0].obb
+        if obb.xyxyxyxy is None:
+            continue
+        pred_polys = obb.xyxyxyxy.cpu().numpy()  # shape (N,8)
+        pred_cls = obb.cls.cpu().numpy().astype(int)
+        pred_conf = obb.conf.cpu().numpy() if obb.conf is not None else np.ones(len(pred_cls))
+
+        pred_items = []
+        for poly, c, conf in zip(pred_polys, pred_cls, pred_conf):
+            pts = poly.reshape(4, 2)
+            ang = polygon_angle_deg(pts)
+            pred_items.append({'cls': c, 'pts': pts, 'angle': ang, 'conf': conf})
+
+        # Match predictions to GT greedily by IoU per class
+        matched_gt = set()
+        for p in sorted(pred_items, key=lambda x: x['conf'], reverse=True):
+            best_iou = 0.0
+            best_gt_idx = -1
+            for idx, gt in enumerate(gt_objs):
+                if idx in matched_gt:
+                    continue
+                if gt['cls'] != p['cls']:
+                    continue
+                iou = polygon_iou(p['pts'], gt['pts'])
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = idx
+            if best_gt_idx >= 0 and best_iou >= iou_thresh:
+                matched_gt.add(best_gt_idx)
+                gt_angle = gt['angle']
+                pred_angle = p['angle']
+                diff = abs(pred_angle - gt_angle)
+                # Orientation symmetry (rectangle) -> normalize
+                diff = min(diff, 180 - diff)
+                # Occasionally angle definitions differ by 90; tighten to <=90
+                if diff > 90:
+                    diff = 180 - diff
+                all_errors.append(diff)
+
+    if not all_errors:
+        print("No matched predictions for angle metric (check IoU threshold or predictions).")
+        return None
+
+    arr = np.array(all_errors, dtype=float)
+    stats = {
+        'count': float(len(arr)),
+        'mean': float(arr.mean()),
+        'median': float(np.median(arr)),
+        'std': float(arr.std(ddof=0)),
+        'p90': float(np.percentile(arr, 90)),
+        'p95': float(np.percentile(arr, 95)),
+        'max': float(arr.max())
+    }
+    return stats
+
+
+def load_gt_labels(label_path: Path, img_path: Path):
+    """Load ground truth OBB labels (YOLO normalized quadrilateral format)."""
+    try:
+        import cv2  # Local ensure
+    except Exception:
+        pass
+    img = cv2.imread(str(img_path))
+    if img is None:
+        return []
+    h, w = img.shape[:2]
+    objs = []
+    with open(label_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 9:
+                continue
+            cls = int(parts[0])
+            coords = list(map(float, parts[1:]))
+            pts = np.array(coords, dtype=float).reshape(4, 2)
+            # Denormalize
+            pts[:, 0] *= w
+            pts[:, 1] *= h
+            ang = polygon_angle_deg(pts)
+            objs.append({'cls': cls, 'pts': pts, 'angle': ang})
+    return objs
+
+
+def polygon_angle_deg(pts: np.ndarray) -> float:
+    """Compute rectangle orientation angle in degrees using longest edge."""
+    # Ensure shape (4,2)
+    if pts.shape != (4, 2):
+        pts = pts.reshape(4, 2)
+    # Compute edge vectors (cyclic)
+    edges = []
+    for i in range(4):
+        p1 = pts[i]
+        p2 = pts[(i + 1) % 4]
+        v = p2 - p1
+        length = np.linalg.norm(v)
+        if length > 0:
+            edges.append((length, v))
+    if not edges:
+        return 0.0
+    # Longest edge defines orientation
+    v = max(edges, key=lambda x: x[0])[1]
+    angle = math.degrees(math.atan2(v[1], v[0]))
+    # Normalize to [0,180)
+    if angle < 0:
+        angle += 180
+    return angle
+
+
+def polygon_iou(pts_a: np.ndarray, pts_b: np.ndarray) -> float:
+    """IoU for two convex quadrilaterals using cv2.intersectConvexConvex."""
+    a = pts_a.astype(np.float32)
+    b = pts_b.astype(np.float32)
+    # Ensure consistent point ordering (cv2 expects either clockwise or ccw). We'll assume given order works; if fails, reorder by centroid angle.
+    def order(pts):
+        c = pts.mean(axis=0)
+        angles = np.arctan2(pts[:,1]-c[1], pts[:,0]-c[0])
+        idx = np.argsort(angles)
+        return pts[idx]
+    a = order(a)
+    b = order(b)
+    area_a = cv2.contourArea(a)
+    area_b = cv2.contourArea(b)
+    if area_a <= 0 or area_b <= 0:
+        return 0.0
+    retval, inter = cv2.intersectConvexConvex(a, b)
+    if retval <= 0:
+        return 0.0
+    inter_area = cv2.contourArea(inter)
+    union = area_a + area_b - inter_area
+    if union <= 0:
+        return 0.0
+    return float(inter_area / union)
